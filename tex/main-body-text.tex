@@ -1,0 +1,126 @@
+%!TEX root = sr-microhap-main.tex
+
+\section*{Introduction}
+
+The existing tools aren't really made for our tasks.  We want to do something that
+is computationally efficient and defensible, focuses only on a few pre-specified sites per 
+locus, applies to short amplicon sequencing and/or RAD, RAPTURE, or ddRAD data, and 
+makes use of alignment quality scores.  Our method operates on SAM/BAM alignment files.
+
+One could try using {\sc stacks} but it barfs on indels.
+\section*{Methods}
+\subsection*{Individual level}
+Consider a reference genomic region. 
+and assume that from a certain individual there are $N$ reads aligning to the region
+and that each of the $N$ reads is 
+long enough that it spans the region. In practice,
+with currently available technology, the reads will likely be short
+(80 to 300 bp) products of sequencing an amplicon or small known region. It may be that the 
+reads were obtained from paired-end read sequencing of a short
+fragment and the reads have been
+``flashed'' (CITATION) together into a single apparent read.
+
+Let there be $S$ variants 
+within this region that have been previously discovered and
+are to be typed as very short haplotypes.  
+The $S$ variants are known by their positions $(v_1,\ldots,v_S)$ in the reference sequence.
+We will think of each $v_s$ ($s \in \{1,\ldots,S\}$) as being a single-base 
+position. As the region is short enough to be spanned by a single read (or overlapping 
+paired-end reads)  $S$ will typically be small, perhaps $<6$. 
+
+Each read from the individual can be summarized into base calls only at
+the positions $(v_1,\ldots,v_S)$ of the reference. We denote the base calls at these 
+positions from the $i\thh$ read $y^{(i)} = (y^{(i)}_1, \ldots, y^{(i)}_S)$.  Associated with
+each of these base calls are base quality scores 
+$Q^{(i)} = (Q^{(i)}_1, \ldots, Q^{(i)}_S)$, which are
+PHRED scaled estimates (CITE) of the probability that the base call at each position is incorrect.
+We will use $q = (-Q/10)^{10}$ to denote the probability that the base call is incorrect; thus,
+ we have $q^{(i)} = (q^{(i)}_1, \ldots, q^{(i)}_S)$. 
+ 
+ Let the true (albeit unknown) haplotypes possessed by
+ the (diploid) individual at the $S$ positions of the reference
+ be denoted by $a = (a_1,\ldots, a_S)$ and $b = (b_1,\ldots,b_S)$.  If the $i\thh$ read arose
+ from the haplotype $a$, then we calculate the probability of its occurrence as:
+ \[
+ p(y^{(i)}|a, q^{(i)}) = \prod_{s=1}^S \biggl[ (1-q^{(i)}_s)\I(y^{(i)}_s = a_s) +  
+ q^{(i)}_s\I(y^{(i)}_s \neq a_s)\biggr].
+ \]
+ Then, summarizing the quality scores over many reads with the same
+ sequence at the $S$ sites is straightforward: let $z^{(j)} = (z_1^{(j)},\ldots,z_S^{(j)})$ denote a haplotype 
+at the $S$ sites and let $z^{(j)}\{i\}$ denote the set of all reads $i$ such that $y^{(i)} = z^{(j)}$.
+ Then, the probability of all observed reads of sequence $z^{(j)}$ given they 
+ arose from haplotype $a$ is
+ \[
+\prod_{i\in z^{(j)}\{i\}} p(y^{(i)}|a, q^{(i)})
+ \]
+ which can be summarized into
+ \[
+ \prod_{s=1}^S \biggl[ \biggl(\I(z^{(j)}_s = a_s)\prod_{i\in z^{(j)}\{i\}}1-q^{(i)}_s\biggr)
+ \biggl(\I(z^{(j)}_s \neq a_s)\prod_{i\in z^{(j)}\{i\}} q^{(i)}_s\biggr) \biggr].
+ \]
+
+Clearly, if there are $J$ unique sequences (at the $S$ positions) observed
+amongst the reads for the individual, then for each sequence $z^{(j)}$ 
+we can summarize the quality scores by computing and storing the following
+quantities:
+\begin{eqnarray*}
+C_{j,s} & = & \prod_{i\in z^{(j)}\{i\}}1-q^{(i)}_s \\
+W_{j,s} & = & \prod_{i\in z^{(j)}\{i\}} q^{(i)}_s,
+\end{eqnarray*}
+for $j \in \{1,\ldots, J\}$.  
+(Incidentally, these stand for ``Correct'' and ``Wrong.'') Hence, $P_{j,a}$,
+the probability of observing all the reads of sequence $z^{(j)}$ from an individual
+given that those reads all came from haplotype $a$, can be calculated as
+\begin{equation}
+P_{j,a} =  \prod_{s=1}^S\biggl[ \I(z_s^{(j)} = a_s)C_{j,s} + 
+ \I(z_s^{(j)} \neq a_s) W_{j,s} \biggr].
+ \label{eq:pja}
+\end{equation}
+Note that the number of reads for an individual might be quite high (possibly hundreds of
+thousands), so it will behoove us to collapse our data in this way.
+
+Equation~\ref{eq:pja} gives us a model for observations on a collection of sequencing reads
+from a single haplotype.  Unfortunately, each diploid organism will have two copies of the
+genome, and, therefore, may carry two haplotypes that are either both the same, or which are
+different.  If we have a collection of $N$ reads that fall into $J$ unique sequence
+categories for
+which we have computed $C$ and $W$, we must 
+compute the probability of observing all those reads given that the true underlying 
+haplotypes in the individual are $a$ and $b$.  Unfortunately, we do not know which of the
+reads arose from $a$ and which from $b$.  If $a\neq b$ (\ie if the individual is not
+homozygous for the haplotypes) then there are $2^N$ possible assignments of reads to the two
+different haplotypes.  Summing over the possible assignments is clearly intractable.  So, we
+explore reducing the number of possible assignments first by making the following
+\begin{description}
+\item[Assumption:] all of the reads from an individual of a particular sequence at
+the $S$ sites (\ie all $y^{(i)}$ that equal $z^{(j)}$ for a given $j$) arose
+from a single one of the haplotypes ($a$ or $b$) within the individual.
+\end{description}
+Personally, I think that this assumption is reasonable. If it doesn't hold it means to me that
+there is a lot of crappy sequencing going on. Note that by disregarding all of the sequence on
+a read except for the base calls at the $S$ sites, we are throwing away some information that
+might help us diagnose how often the same sequence at the $S$ sites arise from different
+heterozygous genotypes; but we aren't going to worry about that right now.
+
+Let $\Aset$ denote the set of all the reads from haplotype $a$ and $\Bset$ all the remaining
+reads that came from haplotype $b$.   Note that $\Aset \cap \Bset = \emptyset$. And we will
+denote all the $N$ reads by $\Rset$.
+Then we have
+\[
+P(\Rset|a,b, Q) = \sum_{\Aset,\Bset} \prod_{j \in \Aset} P_{j,a} 
+\prod_{k \in \Bset} P_{k,b} 
+\]
+
+
+Note that if there are $S$ variants, there will be at most $2^S$ possible read sequences or 
+haplotypes.  That means no more than $2^S(2^S + 1) / 2$ possible pairs of haplotypes in an 
+individual and $J < 2^S$.  Hmmm....but if $J$ is fairly laref then that sum is going to be
+over $2^J$ possibilities.  That isn't looking so good...
+%\subsection{Population level}
+
+%\section*{Results}
+
+%\section*{Discussion}
+
+%\section*{Acknowledgments}
+%We are grateful to \ldots 

@@ -1,3 +1,6 @@
 .Rproj.user
 .Rhistory
 .RData
+tex/*.log
+tex/*.synctex.gz
+tex/sr-microhap-main.pdf
